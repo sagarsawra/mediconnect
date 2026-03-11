@@ -7,10 +7,15 @@ const connectDB = async () => {
   const MAX_RETRIES = 5;
   let retries = 0;
 
+  if (!process.env.MONGO_URI) {
+    console.error("❌ MONGO_URI is not defined in environment variables.");
+    process.exit(1);
+  }
+
   while (retries < MAX_RETRIES) {
     try {
       const conn = await mongoose.connect(process.env.MONGO_URI, {
-        maxPoolSize: 10,         // Connection pool for performance
+        maxPoolSize: 10, // Connection pool for performance
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
       });
@@ -27,11 +32,15 @@ const connectDB = async () => {
       return;
     } catch (error) {
       retries++;
-      console.error(`❌ MongoDB connection attempt ${retries} failed: ${error.message}`);
+      console.error(
+        `❌ MongoDB connection attempt ${retries} failed: ${error.message}`
+      );
+
       if (retries >= MAX_RETRIES) {
         console.error("Max retries reached. Exiting.");
         process.exit(1);
       }
+
       // Exponential backoff
       await new Promise((r) => setTimeout(r, 1000 * retries));
     }

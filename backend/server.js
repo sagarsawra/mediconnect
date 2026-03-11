@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const app = require("./app");
 const connectDB = require("./src/config/db");
 
@@ -12,7 +13,7 @@ const startServer = async () => {
     await connectDB();
 
     const server = app.listen(PORT, () => {
-      console.log(`\n🚀 MediConnect API Server`);
+      console.log("\n🚀 MediConnect API Server");
       console.log(`   Environment : ${process.env.NODE_ENV || "development"}`);
       console.log(`   Port        : ${PORT}`);
       console.log(`   URL         : http://localhost:${PORT}`);
@@ -22,6 +23,7 @@ const startServer = async () => {
     // Graceful shutdown handlers
     const shutdown = async (signal) => {
       console.log(`\n${signal} received. Shutting down gracefully...`);
+
       server.close(() => {
         console.log("HTTP server closed.");
         process.exit(0);
@@ -34,7 +36,10 @@ const startServer = async () => {
     // Unhandled rejection guard
     process.on("unhandledRejection", (reason, promise) => {
       console.error("Unhandled Rejection at:", promise, "reason:", reason);
-      server.close(() => process.exit(1));
+
+      server.close(() => {
+        process.exit(1);
+      });
     });
 
   } catch (error) {
