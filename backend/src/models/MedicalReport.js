@@ -34,7 +34,7 @@ const medicalReportSchema = new mongoose.Schema(
   }
 );
 
-medicalReportSchema.index({ admissionId: 1 });
-medicalReportSchema.index({ patientId: 1 });
+// Compound index for admission+patient lookup (single-field indexes already created via inline index:true)
+medicalReportSchema.index({ admissionId: 1, patientId: 1 });
 
 module.exports = mongoose.model("MedicalReport", medicalReportSchema);

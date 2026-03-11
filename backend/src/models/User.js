@@ -62,8 +62,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
-userSchema.index({ email: 1 });
+// Indexes for role and hospitalId (email already indexed via unique:true)
 userSchema.index({ role: 1 });
 userSchema.index({ hospitalId: 1 });
 

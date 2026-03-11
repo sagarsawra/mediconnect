@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Admission = require("../models/Admission");
 const BedCategory = require("../models/BedCategory");
 const Hospital = require("../models/Hospital");
@@ -8,7 +9,7 @@ const Hospital = require("../models/Hospital");
  * @access Private (HOSPITAL_ADMIN)
  */
 const admissionsByMonth = async (req, res) => {
-  const hospitalId = req.user.hospitalId;
+  const hospitalId = new mongoose.Types.ObjectId(req.user.hospitalId);
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
   twelveMonthsAgo.setDate(1);
@@ -17,7 +18,7 @@ const admissionsByMonth = async (req, res) => {
   const data = await Admission.aggregate([
     {
       $match: {
-        hospitalId: hospitalId,
+        hospitalId,
         requestDate: { $gte: twelveMonthsAgo },
       },
     },
@@ -96,7 +97,7 @@ const bedOccupancy = async (req, res) => {
  * @access Private (HOSPITAL_ADMIN)
  */
 const hospitalPerformance = async (req, res) => {
-  const hospitalId = req.user.hospitalId;
+  const hospitalId = new mongoose.Types.ObjectId(req.user.hospitalId);
 
   const [admissionsByStatus, admissionsByUrgency, avgProcessingTime] = await Promise.all([
     // By status
@@ -145,7 +146,7 @@ const hospitalPerformance = async (req, res) => {
  * @access Private (HOSPITAL_ADMIN)
  */
 const summary = async (req, res) => {
-  const hospitalId = req.user.hospitalId;
+  const hospitalId = new mongoose.Types.ObjectId(req.user.hospitalId);
   const today = new Date();
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   const startOfWeek = new Date(today);

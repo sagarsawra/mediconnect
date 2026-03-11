@@ -6,7 +6,7 @@ const jwt = require("jsonwebtoken");
  * @param {string} expiresIn - Token expiry (default: 7 days)
  * @returns {string} Signed JWT token
  */
-const generateToken = (payload, expiresIn = "7d") => {
+const generateToken = (payload, expiresIn = process.env.JWT_EXPIRE || "7d") => {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn });
 };
 
