@@ -76,7 +76,6 @@ const admissionSchema = new mongoose.Schema(
       ref: "Doctor",
       default: null,
     },
-    assignedWard: { type: String, default: null },
 
     // Notes
     adminNotes: { type: String, default: null },

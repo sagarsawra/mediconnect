@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 const Admission = require("../models/Admission");
-const BedCategory = require("../models/BedCategory");
 const Hospital = require("../models/Hospital");
 
 /**
@@ -56,39 +55,6 @@ const admissionsByMonth = async (req, res) => {
   ]);
 
   res.status(200).json({ success: true, data: { admissionsByMonth: data } });
-};
-
-/**
- * @desc   Bed occupancy statistics per ward
- * @route  GET /api/analytics/bed-occupancy
- * @access Private (HOSPITAL_ADMIN)
- */
-const bedOccupancy = async (req, res) => {
-  const beds = await BedCategory.find({ hospitalId: req.user.hospitalId });
-
-  const occupancyData = beds.map((bed) => ({
-    ward: bed.category,
-    total: bed.total,
-    occupied: bed.occupied,
-    available: bed.available,
-    occupancy: bed.total > 0 ? Math.round((bed.occupied / bed.total) * 100) : 0,
-  }));
-
-  const totalBeds = beds.reduce((s, b) => s + b.total, 0);
-  const totalOccupied = beds.reduce((s, b) => s + b.occupied, 0);
-
-  res.status(200).json({
-    success: true,
-    data: {
-      bedOccupancyByWard: occupancyData,
-      overall: {
-        totalBeds,
-        totalOccupied,
-        totalAvailable: totalBeds - totalOccupied,
-        occupancyRate: totalBeds > 0 ? Math.round((totalOccupied / totalBeds) * 100) : 0,
-      },
-    },
-  });
 };
 
 /**
@@ -157,19 +123,14 @@ const summary = async (req, res) => {
     pendingAdmissions,
     thisMonthAdmissions,
     thisWeekAdmissions,
-    beds,
     hospital,
   ] = await Promise.all([
     Admission.countDocuments({ hospitalId }),
     Admission.countDocuments({ hospitalId, status: { $in: ["PENDING", "UNDER_REVIEW"] } }),
     Admission.countDocuments({ hospitalId, requestDate: { $gte: startOfMonth } }),
     Admission.countDocuments({ hospitalId, requestDate: { $gte: startOfWeek } }),
-    BedCategory.find({ hospitalId }),
-    Hospital.findById(hospitalId).select("name rating reviewCount totalBeds availableBeds"),
+    Hospital.findById(hospitalId).select("name rating reviewCount doctorCount"),
   ]);
-
-  const totalBeds = beds.reduce((s, b) => s + b.total, 0);
-  const availableBeds = beds.reduce((s, b) => s + b.available, 0);
 
   res.status(200).json({
     success: true,
@@ -180,12 +141,9 @@ const summary = async (req, res) => {
         pendingAdmissions,
         thisMonthAdmissions,
         thisWeekAdmissions,
-        totalBeds,
-        availableBeds,
-        occupancyRate: totalBeds > 0 ? Math.round(((totalBeds - availableBeds) / totalBeds) * 100) : 0,
       },
     },
   });
 };
 
-module.exports = { admissionsByMonth, bedOccupancy, hospitalPerformance, summary };
+module.exports = { admissionsByMonth, hospitalPerformance, summary };

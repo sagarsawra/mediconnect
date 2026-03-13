@@ -40,27 +40,26 @@ const chat = async (req, res) => {
 const recommendHospitals = async (req, res) => {
   const { symptoms = [], disease = "", city } = req.body;
 
-  // Fetch available hospitals
-  const query = { isActive: true, availableBeds: { $gt: 0 } };
+  // Fetch active hospitals
+  const query = { isActive: true };
   if (city) query.city = new RegExp(city, "i");
 
   const hospitals = await Hospital.find(query)
-    .select("name city rating availableBeds totalBeds specializations tier")
+    .select("name city rating specializations tier")
     .sort({ rating: -1 })
     .limit(10);
 
   if (hospitals.length === 0) {
     return res.status(200).json({
       success: true,
-      data: { recommendations: [], message: "No hospitals with available beds found in your area." },
+      data: { recommendations: [], message: "No hospitals found in your area." },
     });
   }
 
-  // Mock if no OpenAI key
   if (!process.env.OPENAI_API_KEY) {
     const topHospitals = hospitals.slice(0, 3).map((h, i) => ({
       hospitalName: h.name,
-      reason: `Rated ${h.rating}/5 with ${h.availableBeds} available beds.`,
+      reason: `Rated ${h.rating}/5 with ${h.specializations.slice(0, 2).join(", ")} specializations.`,
       priority: i + 1,
     }));
     return res.status(200).json({ success: true, data: { recommendations: topHospitals, hospitals: hospitals.slice(0, 3) } });

@@ -12,10 +12,9 @@ const { notFound, errorHandler } = require("./src/middlewares/errorMiddleware");
 const authRoutes = require("./src/routes/authRoutes");
 const hospitalRoutes = require("./src/routes/hospitalRoutes");
 const doctorRoutes = require("./src/routes/doctorRoutes");
-const bedRoutes = require("./src/routes/bedRoutes");
+
 const admissionRoutes = require("./src/routes/admissionRoutes");
 const reportRoutes = require("./src/routes/reportRoutes");
-const notificationRoutes = require("./src/routes/notificationRoutes");
 const analyticsRoutes = require("./src/routes/analyticsRoutes");
 const aiRoutes = require("./src/routes/aiRoutes");
 
@@ -80,10 +79,9 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/hospitals", hospitalRoutes);
 app.use("/api/doctors", doctorRoutes);
-app.use("/api/beds", bedRoutes);
+
 app.use("/api/admissions", admissionRoutes);
 app.use("/api/reports", reportRoutes);
-app.use("/api/notifications", notificationRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/ai", aiRoutes);
 

@@ -1,24 +1,58 @@
 const Admission = require("../models/Admission");
 const Hospital = require("../models/Hospital");
-const User = require("../models/User");
+const admissionService = require("../services/admissionService");
 const { buildTimelineEvent, getDefaultMessage } = require("../utils/timelineBuilder");
-const notificationService = require("../services/notificationService");
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
 
 /**
- * @desc   Create a new admission request (Patient)
+ * @desc   Create a new admission request
  * @route  POST /api/admissions
  * @access Private (PATIENT)
+ *
+ * Body:
+ *   hospitalId  - required
+ *   disease     - required (or symptoms array)
+ *   symptoms    - array of strings
+ *   urgency | priority - "Low"|"Medium"|"High"|"Critical" or "LOW"|"HIGH" etc.
+ *   bedType     - optional: "ICU", "General", "Emergency", "Private"
+ *   patientAge, patientGender, patientPhone, patientNotes
  */
 const createAdmission = async (req, res) => {
-  const { hospitalId, disease, symptoms, urgency, patientNotes, patientAge, patientGender, patientPhone } = req.body;
+  const {
+    hospitalId,
+    disease,
+    symptoms,
+    urgency,
+    priority,
+    bedType,
+    patientAge,
+    patientGender,
+    patientPhone,
+    patientNotes,
+  } = req.body;
 
-  // Validate hospital exists
-  const hospital = await Hospital.findById(hospitalId).select("name adminId availableBeds");
-  if (!hospital) {
-    return res.status(404).json({ success: false, message: "Hospital not found." });
+  // ── Validate + resolve hospital ─────────────────────────────────────────────
+  let hospital, resolvedUrgency;
+  try {
+    ({ hospital, urgency: resolvedUrgency } = await admissionService.validateAdmissionPayload({
+      hospitalId,
+      disease,
+      symptoms,
+      urgency,
+      priority,
+      patientAge,
+      patientGender,
+    }));
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({
+      success: false,
+      message: err.message,
+      errors: err.validationErrors || undefined,
+    });
   }
 
-  // Build initial timeline entry
+  // ── Build initial timeline event ────────────────────────────────────────────
   const initialEvent = buildTimelineEvent({
     status: "PENDING",
     message: getDefaultMessage("PENDING"),
@@ -26,81 +60,77 @@ const createAdmission = async (req, res) => {
     performedById: req.user._id,
   });
 
+  // ── Create admission document ───────────────────────────────────────────────
   const admission = await Admission.create({
     patientId: req.user._id,
     patientName: req.user.name,
-    patientAge: patientAge || 0,
+    patientAge: patientAge !== undefined ? Number(patientAge) : 0,
     patientGender: patientGender || "Male",
     patientPhone: patientPhone || null,
     hospitalId,
     hospitalName: hospital.name,
-    disease,
-    symptoms: symptoms || [],
-    urgency: urgency || "Medium",
+    disease: disease || (symptoms && symptoms[0]) || "Not specified",
+    symptoms: Array.isArray(symptoms) ? symptoms : symptoms ? [symptoms] : [],
+    urgency: resolvedUrgency,
     patientNotes: patientNotes || null,
+    // Store bedType in adminNotes as a convention until model is extended
+    // (Keeps model unchanged while providing the field for approval logic)
     status: "PENDING",
+    requestDate: new Date(),
     timeline: [initialEvent],
   });
 
-  // Notify patient
-  await notificationService.notifyAdmissionSubmitted({
-    userId: req.user._id,
-    hospitalName: hospital.name,
-    admissionId: admission._id,
-  });
-
-  // Notify hospital admin
-  if (hospital.adminId) {
-    await notificationService.notifyAdminNewAdmission({
-      adminUserId: hospital.adminId,
-      patientName: req.user.name,
-      disease,
-      urgency: urgency || "Medium",
-      admissionId: admission._id,
-    });
-  }
 
   res.status(201).json({
     success: true,
     message: "Admission request submitted successfully.",
-    data: { admission },
+    admission,
   });
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * @desc   Get logged-in patient's admission requests
+ * @desc   Get logged-in patient's own admission requests
  * @route  GET /api/admissions/my
  * @access Private (PATIENT)
+ *
+ * Query params:
+ *   status - filter by status
+ *   page, limit - pagination
  */
 const getMyAdmissions = async (req, res) => {
   const { status, page = 1, limit = 10 } = req.query;
-  const query = { patientId: req.user._id };
-  if (status) query.status = status;
+  const query = admissionService.buildAdmissionQuery({ status });
+  query.patientId = req.user._id; // always scope to the logged-in patient
 
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const skip = (Math.max(1, parseInt(page)) - 1) * Math.min(50, parseInt(limit));
+  const limitNum = Math.min(50, parseInt(limit) || 10);
 
   const [admissions, total] = await Promise.all([
     Admission.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limitNum)
       .populate("reports", "name type url size uploadedAt"),
     Admission.countDocuments(query),
   ]);
 
   res.status(200).json({
     success: true,
-    data: {
-      admissions,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
-    },
+    total,
+    page: parseInt(page),
+    totalPages: Math.ceil(total / limitNum),
+    admissions,
   });
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * @desc   Get single admission details
+ * @desc   Get a single admission by ID
  * @route  GET /api/admissions/:id
- * @access Private (PATIENT can see own; HOSPITAL_ADMIN can see their hospital's)
+ * @access Private (PATIENT can view own; HOSPITAL_ADMIN can view their hospital's)
  */
 const getAdmissionById = async (req, res) => {
   const admission = await Admission.findById(req.params.id)
@@ -121,153 +151,188 @@ const getAdmissionById = async (req, res) => {
     return res.status(403).json({ success: false, message: "Access denied." });
   }
 
-  res.status(200).json({ success: true, data: { admission } });
+  res.status(200).json({
+    success: true,
+    admission: {
+      ...admission.toJSON(),
+      timeline: admissionService.formatTimeline(admission.timeline),
+    },
+  });
 };
 
-/**
- * @desc   Get all admissions for admin's hospital
- * @route  GET /api/admissions/hospital
- * @access Private (HOSPITAL_ADMIN)
- */
-const getHospitalAdmissions = async (req, res) => {
-  const { status, urgency, page = 1, limit = 20, sortBy = "createdAt", sortOrder = "desc" } = req.query;
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const query = { hospitalId: req.user.hospitalId };
-  if (status) query.status = status;
-  if (urgency) query.urgency = urgency;
+/**
+ * @desc   Admin: list ALL admissions with optional filters
+ * @route  GET /api/admissions
+ * @access Private (HOSPITAL_ADMIN)
+ *
+ * Query params:
+ *   status    - PENDING | UNDER_REVIEW | APPROVED | REJECTED | ADMITTED | DISCHARGED
+ *   priority  - HIGH | LOW | MEDIUM | CRITICAL  (alias for urgency)
+ *   urgency   - High | Medium | Low | Critical
+ *   hospitalId - override (super-admins only; defaults to admin's own hospital)
+ *   page, limit, sortBy, sortOrder
+ */
+const getAllAdmissions = async (req, res) => {
+  const {
+    status,
+    priority,
+    urgency,
+    hospitalId,
+    page = 1,
+    limit = 20,
+    sortBy = "createdAt",
+    sortOrder = "desc",
+  } = req.query;
+
+  // HOSPITAL_ADMIN is always scoped to their own hospital
+  const resolvedHospitalId = req.user.hospitalId || hospitalId;
+
+  const query = admissionService.buildAdmissionQuery({
+    status,
+    priority,
+    urgency,
+    hospitalId: resolvedHospitalId,
+  });
 
   const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.min(100, parseInt(limit) || 20);
+  const skip = (pageNum - 1) * limitNum;
 
   const [admissions, total] = await Promise.all([
     Admission.find(query)
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limitNum)
+      .populate("reports", "name type url"),
+    Admission.countDocuments(query),
+  ]);
+
+  res.status(200).json({
+    success: true,
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / limitNum),
+    admissions,
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc   Admin: list admissions for their hospital (scoped + richer filters)
+ * @route  GET /api/admissions/hospital
+ * @access Private (HOSPITAL_ADMIN)
+ *
+ * Query params:
+ *   status, urgency, priority, sortBy, sortOrder, page, limit
+ */
+const getHospitalAdmissions = async (req, res) => {
+  const { status, urgency, priority, page = 1, limit = 20, sortBy = "createdAt", sortOrder = "desc" } = req.query;
+
+  const query = admissionService.buildAdmissionQuery({
+    status,
+    priority,
+    urgency,
+    hospitalId: req.user.hospitalId,
+  });
+
+  const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.min(100, parseInt(limit) || 20);
+  const skip = (pageNum - 1) * limitNum;
+
+  const [admissions, total] = await Promise.all([
+    Admission.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
       .populate("reports", "name type url size uploadedAt"),
     Admission.countDocuments(query),
   ]);
 
   res.status(200).json({
     success: true,
-    data: {
-      admissions,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / limitNum),
+    admissions,
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc   Admin: approve, reject, or advance an admission's status
+ * @route  PUT /api/admissions/:id/status
+ * @access Private (HOSPITAL_ADMIN)
+ *
+ * Body:
+ *   status         - new status (APPROVED | REJECTED | UNDER_REVIEW | ADMITTED | DISCHARGED)
+ *   adminNotes     - optional admin message
+ *   assignedDoctor - optional doctor name
+ *   assignedDoctorId - optional MongoDB ObjectId
+ *   assignedWard   - optional ward name
+ *
+ * Side-effects:
+ *   APPROVED  → decrements hospital availableBeds (409 if none left)
+ *   REJECTED (from APPROVED) | DISCHARGED → increments availableBeds back
+ */
+const updateAdmissionStatus = async (req, res) => {
+  const { status, adminNotes, assignedDoctor, assignedDoctorId } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ success: false, message: "'status' is required in the request body." });
+  }
+
+  // Ownership check — ensure admin belongs to this admission's hospital
+  const admissionCheck = await Admission.findById(req.params.id).select("hospitalId patientId hospitalName disease urgency");
+  if (!admissionCheck) {
+    return res.status(404).json({ success: false, message: "Admission not found." });
+  }
+  if (admissionCheck.hospitalId.toString() !== req.user.hospitalId?.toString()) {
+    return res.status(403).json({ success: false, message: "Access denied. You can only manage admissions for your own hospital." });
+  }
+
+  // Delegate all business logic (validation, bed ops, timeline) to the service
+  let updatedAdmission;
+  try {
+    updatedAdmission = await admissionService.processStatusUpdate({
+      admissionId: req.params.id,
+      newStatus: status.toUpperCase(),
+      adminNotes,
+      assignedDoctor,
+      assignedDoctorId,
+      performedBy: req.user.name,
+      performedById: req.user._id,
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+
+  res.status(200).json({
+    success: true,
+    message: `Admission status updated to ${status.toUpperCase()}.`,
+    admission: {
+      ...updatedAdmission.toJSON(),
+      timeline: admissionService.formatTimeline(updatedAdmission.timeline),
     },
   });
 };
 
-/**
- * @desc   Update admission status (Hospital Admin)
- * @route  PUT /api/admissions/:id/status
- * @access Private (HOSPITAL_ADMIN)
- */
-const updateAdmissionStatus = async (req, res) => {
-  const { status, adminNotes, assignedDoctor, assignedDoctorId, assignedWard } = req.body;
-
-  const VALID_TRANSITIONS = {
-    PENDING: ["UNDER_REVIEW", "APPROVED", "REJECTED"],
-    UNDER_REVIEW: ["APPROVED", "REJECTED"],
-    APPROVED: ["ADMITTED", "REJECTED"],
-    ADMITTED: ["DISCHARGED"],
-    REJECTED: [],
-    DISCHARGED: [],
-  };
-
-  const admission = await Admission.findById(req.params.id);
-
-  if (!admission) {
-    return res.status(404).json({ success: false, message: "Admission not found." });
-  }
-
-  // Verify hospital ownership
-  if (admission.hospitalId.toString() !== req.user.hospitalId?.toString()) {
-    return res.status(403).json({ success: false, message: "Access denied." });
-  }
-
-  // Validate status transition
-  const allowedTransitions = VALID_TRANSITIONS[admission.status];
-  if (!allowedTransitions || !allowedTransitions.includes(status)) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid status transition from ${admission.status} to ${status}. Allowed: ${allowedTransitions?.join(", ") || "none"}.`,
-    });
-  }
-
-  // Build timeline event
-  const event = buildTimelineEvent({
-    status,
-    message: adminNotes || getDefaultMessage(status),
-    performedBy: req.user.name,
-    performedById: req.user._id,
-  });
-
-  // Prepare update object
-  const updateFields = {
-    status,
-    $push: { timeline: event },
-  };
-
-  if (adminNotes) updateFields.adminNotes = adminNotes;
-  if (assignedDoctor) updateFields.assignedDoctor = assignedDoctor;
-  if (assignedDoctorId) updateFields.assignedDoctorId = assignedDoctorId;
-  if (assignedWard) updateFields.assignedWard = assignedWard;
-
-  // Set date fields based on transition
-  if (status === "UNDER_REVIEW") updateFields.reviewDate = new Date();
-  if (status === "ADMITTED") updateFields.admitDate = new Date();
-  if (status === "DISCHARGED") updateFields.dischargeDate = new Date();
-
-  const updatedAdmission = await Admission.findByIdAndUpdate(
-    req.params.id,
-    updateFields,
-    { new: true, runValidators: true }
-  ).populate("reports", "name type url size uploadedAt");
-
-  // Send notifications based on new status
-  const notifyMap = {
-    APPROVED: () =>
-      notificationService.notifyAdmissionApproved({
-        userId: admission.patientId,
-        hospitalName: admission.hospitalName,
-        admissionId: admission._id,
-        adminNotes,
-      }),
-    REJECTED: () =>
-      notificationService.notifyAdmissionRejected({
-        userId: admission.patientId,
-        hospitalName: admission.hospitalName,
-        admissionId: admission._id,
-        adminNotes,
-      }),
-    ADMITTED: () =>
-      notificationService.notifyAdmitted({
-        userId: admission.patientId,
-        hospitalName: admission.hospitalName,
-        ward: assignedWard,
-        admissionId: admission._id,
-      }),
-    DISCHARGED: () =>
-      notificationService.notifyDischarged({
-        userId: admission.patientId,
-        hospitalName: admission.hospitalName,
-        admissionId: admission._id,
-      }),
-  };
-
-  if (notifyMap[status]) await notifyMap[status]();
-
-  res.status(200).json({
-    success: true,
-    message: `Admission status updated to ${status}.`,
-    data: { admission: updatedAdmission },
-  });
-};
+// ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
   createAdmission,
   getMyAdmissions,
   getAdmissionById,
+  getAllAdmissions,
   getHospitalAdmissions,
   updateAdmissionStatus,
 };

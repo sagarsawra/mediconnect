@@ -69,7 +69,7 @@ const getHospitalRecommendations = async (symptoms, disease, hospitals) => {
   const hospitalSummary = hospitals
     .map(
       (h) =>
-        `- ${h.name} (${h.city}): Rating ${h.rating}, Beds: ${h.availableBeds}/${h.totalBeds}, Specializations: ${h.specializations.slice(0, 5).join(", ")}, Tier: ${h.tier}`
+      `- ${h.name} (${h.city}): Rating ${h.rating}, Specializations: ${h.specializations.slice(0, 5).join(", ")}, Tier: ${h.tier}`
     )
     .join("\n");
 
@@ -107,7 +107,7 @@ const compareHospitals = async (hospitals) => {
   const hospitalDetails = hospitals
     .map(
       (h) =>
-        `${h.name}: Rating ${h.rating}/5, Available Beds ${h.availableBeds}, ICU Beds ${h.availableIcuBeds}, Tier: ${h.tier}, Specializations: ${h.specializations.join(", ")}, Accreditations: ${h.accreditations.join(", ")}`
+        `${h.name}: Rating ${h.rating}/5, Tier: ${h.tier}, Specializations: ${h.specializations.join(", ")}, Accreditations: ${h.accreditations.join(", ")}`
     )
     .join("\n");
 
@@ -116,10 +116,9 @@ Compare these hospitals for a patient choosing where to be admitted:
 ${hospitalDetails}
 
 Provide a brief, objective comparison covering:
-1. Best for emergency care
-2. Best overall rating
-3. Best bed availability
-4. Recommended choice and why
+1. Best overall rating
+2. Best specializations for your condition
+3. Recommended choice and why
 
 Keep response under 200 words and be direct.
 `;

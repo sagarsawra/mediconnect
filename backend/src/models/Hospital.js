@@ -8,6 +8,7 @@ const hospitalSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+
     address: { type: String, required: true },
     city: { type: String, required: true, index: true },
     state: { type: String, required: true },
@@ -20,14 +21,6 @@ const hospitalSchema = new mongoose.Schema(
     // Rating system
     rating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0 },
-
-    // Bed inventory — live counters
-    totalBeds: { type: Number, default: 0, min: 0 },
-    availableBeds: { type: Number, default: 0, min: 0 },
-    icuBeds: { type: Number, default: 0, min: 0 },
-    availableIcuBeds: { type: Number, default: 0, min: 0 },
-    emergencyBeds: { type: Number, default: 0, min: 0 },
-    availableEmergencyBeds: { type: Number, default: 0, min: 0 },
 
     // Medical capabilities
     specializations: [{ type: String, trim: true }],

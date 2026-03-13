@@ -89,12 +89,6 @@ export const reportAPI = {
   delete: (id) => api.delete(`/reports/${id}`),
 };
 
-export const notificationAPI = {
-  getAll: (params) => api.get("/notifications", { params }),
-  markAsRead: (id) => api.put(`/notifications/${id}/read`),
-  markAllAsRead: () => api.put("/notifications/read-all"),
-  clearAll: () => api.delete("/notifications"),
-};
 
 export const analyticsAPI = {
   summary: () => api.get("/analytics/summary"),
